@@ -13,7 +13,7 @@ const TableRow = ({
   };
 
   return (
-    <tr>
+    <>
       <td>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           {Array(level).fill(' ').join('')}
@@ -64,7 +64,7 @@ const TableRow = ({
         </button>
       </td>
       <td>{rowData.variancePercent}%</td>
-    </tr>
+    </>
   );
 };
 

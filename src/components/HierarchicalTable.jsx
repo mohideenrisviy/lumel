@@ -1,24 +1,24 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import TableHeader from './TableHeader';
 import TableBody from './TableBody';
 import './HierarchicalTable.css';
 import data from '../assets/data.json';
+import { calculateVariance, updateRowValue, updateParent, findParent, updateRowPercentage, updateParentByPercentage } from './utils/tableHelpers';
 
 const HierarchicalTable = () => {
   const [rows, setRows] = useState(data.rows);
   const [expandedRows, setExpandedRows] = useState([]);
 
-  const updateRow = (rows, id, newValue, variance,percentage) => {
+  const updateRow = (rows, id, newValue, variance, percentage) => {
     if (!rows) return [];
     return rows.map(row => {
-      
       if (row.id === id) {
-        const updatedChildren = percentage != null 
-        ?updateChildrenByPercentage(row.children,percentage)
-        :updateChildrenByValue(row.children,newValue, row.value);
+        const updatedChildren = percentage 
+          ? updateChildrenByPercentage(row.children, percentage)
+          : updateChildrenByValue(row.children, newValue, row.value);
         return {
           ...row,
-          children:updatedChildren,
+          children: updatedChildren,
           value: newValue,
           variancePercent: variance
         };
@@ -39,165 +39,153 @@ const HierarchicalTable = () => {
     }, 0);
 
     const parentIndex = rows.findIndex(r => r.id === parentId);
-    if (parentIndex !== -1) {
-      rows[parentIndex] = { ...rows[parentIndex], value: parentValue };
-    }
+    if (parentIndex === -1) return rows;
+
+    const updatedRows = [...rows];
+    updatedRows[parentIndex] = { ...parent, value: parentValue };
 
     const parentParent = rows.find(r => r.children?.some(c => c.id === parentId));
     if (parentParent) {
-      return updateParentValues(rows, parentParent.id);
+      return updateParentValues(updatedRows, parentParent.id);
     }
 
-    return rows;
+    return updatedRows;
   };
 
   const updateChildrenByPercentage = (children, percentage) => {
     if (!children) return [];
-    const variance = (percentage*100).toFixed(2);
-    return children.map(child=>({...child,value:child.value + child.value * percentage,input:percentage*100,variancePercent:variance}));
+    const variance = (percentage * 100).toFixed(2);
+    const inputValue = percentage * 100;
+    
+    return children.map(child => ({
+      ...child,
+      value: (child.value + child.value * percentage).toFixed(0),
+      input: inputValue,
+      variancePercent: variance
+    }));
   };
 
-  const updateChildrenByValue = (children, newValue, oldValue)=>{
+  const updateChildrenByValue = (children, newValue, oldValue) => {
     if (!children) return [];
-    return children.map(child=>{
-        const newChildValue =(child.value/oldValue)*newValue;
-        const newVariance = ((newChildValue - child.value)/child.value)*100;
-
-        return ({
-            ...child,
-            value:newChildValue.toFixed(0),
-            input:newChildValue.toFixed(0),
-            variancePercent:newVariance.toFixed(2)      })
-    })
-  }
-
-  const findParent = (id) =>{
-    let parent
-    rows.map(row=>{
-        if (row.children.some(child=>child.id===id)) {
-        parent= row}
-    })
-    return parent
-  }
-  const updateChildRowByPercentage = (id) => {
-    const parent = findParent(id);
-    const child = parent.children.find(child=>child.id===id);
-    const childInput = parseFloat(child.input) || 0
-
-    const childPercentage = childInput /100;
-    const childValue = child.value + child.value * childPercentage;
-    const childVariance = (childValue - child.value)/child.value *100;
-
-    const updatedChild ={
-        ...child,
-        value:childValue.toFixed(0),
-        input:childValue.toFixed(0),
-        variancePercent:childVariance.toFixed(2)
-    }
-    console.log(child);
-    parent.children = parent.children.map(child=>child.id===id?updatedChild:child);
-    const oldParentValue = parent.value;   
-      
-    parent.value = parent.children.reduce((sum,child)=>sum+parseFloat(child.value),0).toFixed(0);
-    parent.variancePercent =(((parent.value - oldParentValue)/oldParentValue)*100).toFixed(2);
-    parent.input =parent.variancePercent
-
-    const finalRows = rows.map(row=>row.id===parent.id?parent:row);
-
-    setRows(finalRows);
-
-  }
-
-  const calculateAllocationByPercentage = (id) => {
     
-    const row = rows.find(r => r.id === id);
-    if (!row) {
-        updateChildRowByPercentage(id);
-        return
-    };
+    return children.map(child => {
+      const newChildValue = (child.value / oldValue) * newValue;
+      return updateRowValue(child, newChildValue);
+    });
+  };
 
+  const updateChildRow = (id, valueFn) => {
+    const parent = findParent(id, rows);
+    const child = parent.children.find(child => child.id === id);
+    const newValue = valueFn(child);
+    
+    const updatedChild = updateRowValue(child, newValue);
+    const updatedParent = updateParent(parent, updatedChild);
+    
+    setRows(prevRows => 
+      prevRows.map(row => row.id === parent.id ? updatedParent : row)
+    );
+  };
+
+  const updateChildRowByPercentage = (id) => {
+    const parent = findParent(id, rows);
+    const child = parent.children.find(child => child.id === id);
+    const childInput = parseFloat(child.input) || 0;
+    const percentage = childInput / 100;
+    const newValue = child.value + (child.value * percentage);
+    const updatedChild = updateRowPercentage(child, newValue);
+    const updatedParent = updateParentByPercentage(parent, updatedChild);
+    
+    setRows(prevRows => 
+      prevRows.map(row => row.id === parent.id ? updatedParent : row)
+    );
+  };
+
+  const UpdateParentRowByPercentage = (row,id)=>{
+    console.log(row)
     const currentValue = parseFloat(row.value) || 0;
     const input = parseFloat(row.input) || 0;
     const percentage = input / 100;
     const newValue = currentValue + (currentValue * percentage);
-    const variance = (input).toFixed(2);
-
-    const updatedRows = updateRow(rows, id, newValue, variance,percentage);
-    
-    console.log(updatedRows)
+    const variance = input.toFixed(2);
+    const updatedRows = updateRow(rows, id, newValue, variance, percentage);
     const finalRows = updateParentValues(updatedRows, row.parent);
     setRows(finalRows);
-  };
-
-  const updateChildRowByValue = (id) =>{
-    const parent = findParent(id);
-    const child = parent.children.find(child=>child.id===id);
-    const childInput = parseFloat(child.input) ||0;
-    const childValue = childInput;
-    const childVariance = (childValue - child.value)/child.value * 100;
-    const updatedChild = {
-        ...child,
-        value:childValue.toFixed(0),
-        input:childValue.toFixed(0),
-        variancePercent:childVariance.toFixed(2)
-    }
-    parent.children = parent.children.map(child=>child.id===id?updatedChild:child);
-    const oldParentValue = parent.value;
-    parent.value = parent.children.reduce((sum,child)=>sum+parseFloat(child.value),0);
-    parent.variancePercent =(((parent.value -oldParentValue)/oldParentValue)*100).toFixed(2);
-    parent.input =parent.variancePercent;
-    const finalRows = rows.map(row=>row.id===parent.id?parent:row);
-    setRows(finalRows)
   }
-  const calculateAllocationByValue = (id) => {
+
+  const calculateAllocationByPercentage = useCallback((id) => {
     const row = rows.find(r => r.id === id);
     if (!row) {
-        updateChildRowByValue(id);
-        return
-    };
+      updateChildRowByPercentage(id);
+      return;
+    }
+    UpdateParentRowByPercentage(row,id);
+  },[rows]);
 
+  const updateChildRowByValue = (id) => {
+    const parent = findParent(id, rows);
+    const child = parent.children.find(child => child.id === id);
+    const childInput = parseFloat(child.input) || 0;
+    
+    const updatedChild = updateRowValue(child, childInput);
+    const updatedParent = updateParent(parent, updatedChild);
+    
+    setRows(prevRows => 
+      prevRows.map(row => row.id === parent.id ? updatedParent : row)
+    );
+  };
+
+  const updateParentRowByValue = (row,id)=>{
+    console.log(row)
     const currentValue = parseFloat(row.value) || 0;
     const input = parseFloat(row.input) || 0;
     const newValue = input;
-    const variance = currentValue > 0 ? ((input - currentValue) / currentValue * 100).toFixed(2) : '0.00';
-
-    const updatedRows = updateRow(rows, id, newValue, variance,null);
+    const variance = currentValue > 0 ? calculateVariance(newValue, currentValue) : '0.00';
+    const updatedRows = updateRow(rows, id, newValue, variance, null);
     const finalRows = updateParentValues(updatedRows, row.parent);
     setRows(finalRows);
-  };
-
-  const handleValueChange = (id, value,level) => {
-    console.log(level)
+  }
+  const calculateAllocationByValue = useCallback((id) => {
     const row = rows.find(r => r.id === id);
     if (!row) {
-        const parent =findParent(id);
-        const child = parent.children.find(child=>child.id===id);
-        const updatedChild = {...child,input:value};
-        parent.children = parent.children.map(child=>child.id===id?updatedChild:child);
-        setRows(rows.map(row=>row.id===parent.id?parent:row))
-    };
+      updateChildRowByValue(id);
+      return;
+    }
+    updateParentRowByValue(row,id);
+  },[rows]);
 
-    setRows(rows.map(r => {
-      if (r.id === id) {
-        return {
-          ...r,
-          input: value
-        };
-      }
-      return r;
-    }));
-  };
+  const handleValueChange = useCallback((id, value, level) => {
+    const row = rows.find(r => r.id === id);
+    if (!row) {
+      const parent = findParent(id, rows);
+      const child = parent.children.find(child => child.id === id);
+      const updatedChild = { ...child, input: value };
+      const updatedParent = updateParent(parent, updatedChild);
+      setRows(prevRows => 
+        prevRows.map(row => row.id === parent.id ? updatedParent : row)
+      );
+      return;
+    }
 
-  const handleExpand = (id) => {
+    setRows(prevRows => 
+      prevRows.map(r => {
+        if (r.id === id) {
+          return { ...r, input: value };
+        }
+        return r;
+      })
+    );
+  },[rows]);
+
+  const handleExpand = useCallback((id) => {
     setExpandedRows(prev => 
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
-  };
+  },[rows]);
 
   return (
     <div className="table-container">
       <table className="hierarchical-table">
-        {/* <TableHeader /> */}
         <TableBody
           rows={rows}
           expandedRows={expandedRows}
@@ -211,4 +199,4 @@ const HierarchicalTable = () => {
   );
 };
 
-export default HierarchicalTable; 
+export default HierarchicalTable;
